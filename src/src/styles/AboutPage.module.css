@@ -1,0 +1,185 @@
+.aboutPage {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 2rem;
+  padding-top: 0;
+}
+
+.pageHeader {
+  text-align: center;
+  margin-bottom: 3rem;
+  border-bottom: 2px solid #646cff;
+}
+
+.pageHeader h1 {
+  font-size: 2.5rem;
+  color: #646cff;
+  margin: 0 0 0.5rem 0;
+}
+
+.tagline {
+  font-size: 1.2rem;
+  color: #888;
+  font-style: italic;
+  margin: 0;
+}
+
+.content {
+  color: #ccc;
+  line-height: 1.8;
+}
+
+.section {
+  margin-bottom: 3rem;
+}
+
+.mainAbout {
+  font-size: 1.1rem;
+  line-height: 1.8;
+  text-align: center;
+  color: #fff;
+  margin: 0;
+}
+
+.section h2 {
+  color: #646cff;
+  font-size: 1.8rem;
+  margin: 0 0 1rem 0;
+  text-align: center;
+}
+
+.section p {
+  margin-bottom: 1rem;
+}
+
+.boardContainer {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 2rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  scroll-snap-type: x mandatory;
+}
+
+.memberCard {
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  transition: transform 0.3s ease;
+  min-width: 280px;
+  scroll-snap-align: start;
+}
+
+.memberCard:hover {
+  transform: translateY(-5px);
+}
+
+.memberCard img {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 1.5rem;
+  border: 3px solid #646cff;
+}
+
+.memberCard h3 {
+  color: #fff;
+  font-size: 1.3rem;
+  margin: 0 0 0.5rem 0;
+}
+
+.memberCard h4 {
+  color: #646cff;
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 0 0 1rem 0;
+}
+
+.memberCard p {
+  color: #ccc;
+  line-height: 1.6;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.loadingText,
+.emptyState {
+  text-align: center;
+  color: #94a3b8;
+}
+
+.section ul {
+  list-style: none;
+  padding: 0;
+}
+
+.section ul li {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+  position: relative;
+}
+
+.section ul li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #646cff;
+  font-size: 1.5rem;
+}
+
+.section ul li strong {
+  color: #fff;
+}
+
+.contactInfo p {
+  margin-bottom: 0.75rem;
+}
+
+.contactInfo strong {
+  color: #fff;
+}
+
+/* Mobile Styles */
+@media (max-width: 768px) {
+
+  .pageHeader h1 {
+    font-size: 2rem;
+  }
+
+  .tagline {
+    font-size: 1rem;
+  }
+
+  .section h2 {
+    font-size: 1.5rem;
+  }
+
+  .boardContainer {
+    gap: 1rem;
+  }
+
+  .memberCard {
+    padding: 1.25rem;
+    min-width: 220px;
+  }
+
+  .memberCard img {
+    width: 120px;
+    height: 120px;
+    margin-bottom: 1rem;
+  }
+
+  .memberCard h3 {
+    font-size: 1.1rem;
+  }
+
+  .memberCard h4 {
+    font-size: 0.95rem;
+  }
+
+  .memberCard p {
+    font-size: 0.9rem;
+  }
+}

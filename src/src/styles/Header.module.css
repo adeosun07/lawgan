@@ -1,0 +1,103 @@
+/* Header Styles */
+.header {
+  background-color: #1a1a1a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+}
+
+.headerContainer {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0.25rem 2rem;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  position: relative;
+  gap: 0.25rem 1rem;
+}
+
+.logo {
+  flex-shrink: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.logoImg {
+  height: 45px;
+  width: auto;
+  display: block;
+}
+
+.headerTitle {
+  text-align: center;
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+}
+
+.headerTitle h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+.motto {
+  margin: 0;
+  margin-top: 0.2rem;
+  font-size: 0.65rem;
+  color: #888;
+  font-style: italic;
+  letter-spacing: 1px;
+  position: absolute;
+  left: 50%;
+  white-space: nowrap;
+}
+
+/* Mobile Styles */
+@media (max-width: 768px) {
+  .headerContainer {
+    padding: 0.4rem 1rem;
+    gap: 0.5rem;
+    grid-template-rows: auto;
+  }
+
+  .logoImg {
+    height: 32px;
+  }
+
+  .headerTitle h1 {
+    font-size: 1rem;
+  }
+
+  .motto {
+    font-size: 0.55rem;
+    left: 45%;
+  }
+}
+
+/* Tablet Styles */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .headerContainer {
+    padding: 0.5rem 1.5rem;
+  }
+
+  .logoImg {
+    height: 36px;
+  }
+
+  .headerTitle h1 {
+    font-size: 1.2rem;
+  }
+
+  .motto {
+    font-size: 0.6rem;
+    left: 48%;
+  }
+}

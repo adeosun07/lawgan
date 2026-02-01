@@ -1,0 +1,109 @@
+.editorialPage {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+  padding-top: 0;
+}
+
+.pageHeader {
+  text-align: center;
+  margin-bottom: 3rem;
+  border-bottom: 2px solid #646cff;
+}
+
+.pageHeader h1 {
+  font-size: 2.5rem;
+  color: #646cff;
+  margin: 0 0 1rem 0;
+}
+
+.pageHeader p {
+  font-size: 1.1rem;
+  color: #888;
+  margin: 0;
+}
+
+.boardContainer {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 2rem;
+}
+
+.memberCard {
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  transition: transform 0.3s ease;
+}
+
+.memberCard:hover {
+  transform: translateY(-5px);
+}
+
+.memberCard img {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 1.5rem;
+  border: 3px solid #646cff;
+}
+
+.memberCard h3 {
+  color: #fff;
+  font-size: 1.3rem;
+  margin: 0 0 0.5rem 0;
+}
+
+.memberCard h4 {
+  color: #646cff;
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 0 0 1rem 0;
+}
+
+.memberCard p {
+  color: #ccc;
+  line-height: 1.6;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+/* Mobile Styles */
+@media (max-width: 768px) {
+  .editorialPage {
+    padding: 1rem;
+  }
+
+  .pageHeader h1 {
+    font-size: 2rem;
+  }
+
+  .boardContainer {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .memberCard {
+    padding: 1.25rem;
+  }
+
+  .memberCard img {
+    width: 120px;
+    height: 120px;
+    margin-bottom: 1rem;
+  }
+
+  .memberCard h3 {
+    font-size: 1.1rem;
+  }
+
+  .memberCard h4 {
+    font-size: 0.95rem;
+  }
+
+  .memberCard p {
+    font-size: 0.9rem;
+  }
+}

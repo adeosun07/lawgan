@@ -1,0 +1,143 @@
+CREATE TABLE articles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  summary TEXT,
+  content TEXT NOT NULL,
+  category VARCHAR(50) NOT NULL,
+  is_breaking BOOLEAN DEFAULT FALSE,
+  published BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX idx_articles_created_at
+ON articles (created_at DESC);
+
+CREATE INDEX idx_articles_category
+ON articles (category);
+
+CREATE INDEX idx_articles_breaking
+ON articles (is_breaking)
+WHERE is_breaking = TRUE;
+
+CREATE TABLE authors (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  email TEXT UNIQUE,
+  bio TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE articles
+ADD COLUMN author_id UUID REFERENCES authors(id)
+ON DELETE SET NULL;
+
+ALTER TABLE articles
+ALTER COLUMN is_breaking SET DEFAULT TRUE;
+
+CREATE OR REPLACE FUNCTION enforce_breaking_news_limit()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE articles
+  SET is_breaking = FALSE
+  WHERE id NOT IN (
+    SELECT id
+    FROM articles
+    WHERE is_breaking = TRUE
+    ORDER BY created_at DESC
+    LIMIT 6
+  )
+  AND is_breaking = TRUE;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER breaking_news_limit_trigger
+AFTER INSERT ON articles
+FOR EACH ROW
+EXECUTE FUNCTION enforce_breaking_news_limit();
+
+CREATE TABLE admins (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,  -- store hashed passwords
+    role VARCHAR(20) NOT NULL DEFAULT 'editor',  -- roles: 'editor', 'admin', 'superadmin'
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_login TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE admin_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id UUID REFERENCES admins(id) ON DELETE CASCADE,
+    refresh_token TEXT NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE articles
+ADD COLUMN image_url VARCHAR(100)
+
+DROP TABLE IF EXISTS authors CASCADE;
+
+CREATE TABLE authors (
+    id UUID PRIMARY KEY REFERENCES admins(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,          -- sent from frontend (display / pen name)
+    email TEXT NOT NULL UNIQUE,  -- mirrors admin email
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE editorial_boards (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  image TEXT,
+  about TEXT
+);
+
+ALTER TABLE articles DROP COLUMN image_url;
+ALTER TABLE articles ADD COLUMN image_url BYTEA;
+
+ALTER TABLE editorial_boards DROP COLUMN image;
+ALTER TABLE editorial_boards ADD COLUMN image BYTEA;
+
+ALTER TABLE articles
+ADD COLUMN image_mime TEXT;
+
+ALTER TABLE editorial_boards
+ADD COLUMN image_mime TEXT;
+
+ALTER TABLE articles DROP COLUMN author_id;
+ALTER TABLE articles ADD COLUMN author TEXT;
+
+CREATE TABLE advertisements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  image BYTEA,
+  image_mime TEXT,
+  url TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  page TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE quotes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  author TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE executives (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  image BYTEA,
+  position TEXT,
+  image_mime TEXT,
+  about TEXT
+);
+

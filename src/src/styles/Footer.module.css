@@ -1,0 +1,129 @@
+.footer {
+  background-color: #1a1a1a;
+  border-top: 1px solid #333;
+  margin-top: 4rem;
+  padding: 3rem 0 1rem;
+}
+
+.footerContainer {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3rem;
+}
+
+.footerSection {
+  text-align: center;
+}
+
+.footerSection h3 {
+  color: #646cff;
+  font-size: 1.2rem;
+  margin: 0 0 1.5rem 0;
+  font-weight: 600;
+}
+
+.footerSection ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.footerSection ul li {
+  margin-bottom: 0.75rem;
+}
+
+.footerSection ul li a {
+  color: #ccc;
+  text-decoration: none;
+  transition: color 0.3s ease;
+  font-size: 0.95rem;
+}
+
+.footerSection ul li a:hover {
+  color: #646cff;
+}
+
+.contactList li {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: #ccc;
+  margin-bottom: 1rem;
+}
+
+.contactList svg {
+  flex-shrink: 0;
+}
+
+.socialLinks {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.socialLinks a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #242424;
+  color: #fff;
+  transition: all 0.3s ease;
+  border: 1px solid #333;
+}
+
+.socialLinks a:hover {
+  background-color: #646cff;
+  border-color: #646cff;
+  transform: translateY(-3px);
+}
+
+.footerBottom {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem 2rem 0;
+  border-top: 1px solid #333;
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.footerBottom p {
+  color: #888;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* Mobile Styles */
+@media (max-width: 768px) {
+  .footerContainer {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    padding: 0 1rem;
+  }
+
+  .footer {
+    padding: 2rem 0 1rem;
+  }
+
+  .footerSection h3 {
+    font-size: 1.1rem;
+  }
+}
+
+/* Tablet Styles */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .footerContainer {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
+  }
+
+  .footerSection:last-child {
+    grid-column: 1 / -1;
+  }
+}
