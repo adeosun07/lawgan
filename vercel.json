@@ -3,11 +3,6 @@
   "installCommand": "npm install --prefix src && npm install --prefix api",
   "buildCommand": "npm run build --prefix src && rm -rf dist && mkdir -p dist && cp -r src/dist/* dist/",
   "outputDirectory": "dist",
-  "functions": {
-    "api/index.js": {
-      "runtime": "nodejs20.x"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
