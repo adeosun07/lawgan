@@ -13,6 +13,7 @@ const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const allowVercelWildcard = process.env.CORS_ALLOW_VERCEL !== 'false';
 
 app.use(
   cors({
@@ -21,7 +22,15 @@ app.use(
         return callback(null, true);
       }
 
+      if (origin.startsWith('file://')) {
+        return callback(null, true);
+      }
+
       if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      if (allowVercelWildcard && /\.vercel\.app$/.test(origin)) {
         return callback(null, true);
       }
 
