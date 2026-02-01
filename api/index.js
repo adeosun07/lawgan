@@ -50,6 +50,38 @@ const normalizeCategory = (category) => category?.trim().toLowerCase().replace(/
 const allowedCategories = new Set(['law', 'politics', 'foreign affairs', 'reviews']);
 const toBytea = (buffer) => (buffer ? `\\x${buffer.toString('hex')}` : null);
 
+const getSupabaseOrFail = (res) => {
+  try {
+    return getSupabaseClient();
+  } catch (error) {
+    // Breaking change: missing Supabase env now returns a clear error response.
+    res.status(500).json({
+      message: 'Supabase is not configured correctly.',
+      error: error.message,
+    });
+    return null;
+  }
+};
+
+app.get('/health', async (_req, res) => {
+  const supabase = getSupabaseOrFail(res);
+  if (!supabase) return;
+
+  try {
+    const { error } = await supabase
+      .from('quotes')
+      .select('id', { count: 'exact', head: true });
+
+    if (error) {
+      return res.status(500).json({ status: 'error', error: error.message });
+    }
+
+    return res.status(200).json({ status: 'ok' });
+  } catch (error) {
+    return res.status(500).json({ status: 'error', error: error.message });
+  }
+});
+
 const parseImagePayload = (imageBase64, imageMime) => {
   if (!imageBase64) {
     return { imageBuffer: null, imageMime: null };
@@ -79,7 +111,8 @@ app.post('/admin/signup', async (req, res) => {
   const normalizedEmail = normalizeEmail(email);
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: existing, error: existingError } = await supabase
       .from('admins')
       .select('id')
@@ -126,7 +159,8 @@ app.post('/admin/signin', async (req, res) => {
   const normalizedEmail = normalizeEmail(email);
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: admin, error: adminError } = await supabase
       .from('admins')
       .select('id, name, email, password_hash')
@@ -210,7 +244,8 @@ app.patch('/articles/edit', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const updateFields = {
       title,
       slug: normalizeSlug(newSlug),
@@ -279,7 +314,8 @@ app.post('/articles/publish', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: existing, error: existingError } = await supabase
       .from('articles')
       .select('id')
@@ -323,7 +359,8 @@ app.post('/articles/publish', async (req, res) => {
 
 app.get('/articles', async (req, res) => {
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: articles, error } = await supabase
       .from('articles')
       .select('*')
@@ -349,7 +386,8 @@ app.get('/articles/category/:category', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: articles, error } = await supabase
       .from('articles')
       .select('*')
@@ -373,7 +411,8 @@ app.delete('/articles/delete', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: deleted, error } = await supabase
       .from('articles')
       .delete()
@@ -397,7 +436,8 @@ app.delete('/articles/delete', async (req, res) => {
 
 app.get('/editorial-boards', async (req, res) => {
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: editorialBoards, error } = await supabase
       .from('editorial_boards')
       .select('*')
@@ -432,7 +472,8 @@ app.post('/editorial-boards', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: editorialBoard, error } = await supabase
       .from('editorial_boards')
       .insert({
@@ -478,7 +519,8 @@ app.patch('/editorial-boards', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const updateFields = {
       name: name?.trim(),
       about,
@@ -522,7 +564,8 @@ app.delete('/editorial-boards', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: deleted, error } = await supabase
       .from('editorial_boards')
       .delete()
@@ -550,7 +593,8 @@ app.delete('/editorial-boards', async (req, res) => {
 
 app.get('/executives', async (req, res) => {
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: executives, error } = await supabase
       .from('executives')
       .select('*')
@@ -586,7 +630,8 @@ app.post('/executives', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: executive, error } = await supabase
       .from('executives')
       .insert({
@@ -639,7 +684,8 @@ app.patch('/executives', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const updateFields = {
       name: name?.trim(),
       position: position?.trim(),
@@ -684,7 +730,8 @@ app.delete('/executives', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: deleted, error } = await supabase
       .from('executives')
       .delete()
@@ -730,7 +777,8 @@ app.post('/advertisements/publish', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: advertisement, error } = await supabase
       .from('advertisements')
       .insert({
@@ -759,7 +807,8 @@ app.post('/advertisements/publish', async (req, res) => {
 
 app.get('/advertisements', async (req, res) => {
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: advertisements, error } = await supabase
       .from('advertisements')
       .select('*')
@@ -787,7 +836,8 @@ app.get('/advertisements/page/:page', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: advertisements, error } = await supabase
       .from('advertisements')
       .select('*')
@@ -834,7 +884,8 @@ app.patch('/advertisements/edit', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const updateFields = {
       url: url?.trim(),
       owner: owner?.trim(),
@@ -880,7 +931,8 @@ app.delete('/advertisements/delete', async (req, res) => {
   }
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseOrFail(res);
+    if (!supabase) return;
     const { data: deleted, error } = await supabase
       .from('advertisements')
       .delete()
