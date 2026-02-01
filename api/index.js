@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import pool from './db.js';
+import { getSupabaseClient } from './supabaseClient.js';
 
 const app = express();
 const PORT = process.env.PORT;
@@ -48,6 +48,7 @@ const normalizeEmail = (email) => email?.trim().toLowerCase();
 const normalizeSlug = (slug) => slug?.trim().toLowerCase();
 const normalizeCategory = (category) => category?.trim().toLowerCase().replace(/-/g, ' ');
 const allowedCategories = new Set(['law', 'politics', 'foreign affairs', 'reviews']);
+const toBytea = (buffer) => (buffer ? `\\x${buffer.toString('hex')}` : null);
 
 const parseImagePayload = (imageBase64, imageMime) => {
   if (!imageBase64) {
@@ -78,21 +79,38 @@ app.post('/admin/signup', async (req, res) => {
   const normalizedEmail = normalizeEmail(email);
 
   try {
-    const existing = await pool.query('SELECT id FROM admins WHERE email = $1', [normalizedEmail]);
-    if (existing.rows.length > 0) {
+    const supabase = getSupabaseClient();
+    const { data: existing, error: existingError } = await supabase
+      .from('admins')
+      .select('id')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+
+    if (existingError) {
+      return res.status(500).json({ message: 'Failed to check existing admin.', error: existingError.message });
+    }
+
+    if (existing) {
       return res.status(409).json({ message: 'Email already in use.' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    const insertResult = await pool.query(
-      `INSERT INTO admins (name, email, password_hash)
-       VALUES ($1, $2, $3)
-       RETURNING id, name, email, created_at`,
-      [name.trim(), normalizedEmail, passwordHash]
-    );
+    const { data: admin, error: insertError } = await supabase
+      .from('admins')
+      .insert({
+        name: name.trim(),
+        email: normalizedEmail,
+        password_hash: passwordHash,
+      })
+      .select('id, name, email, created_at')
+      .single();
 
-    return res.status(201).json({ admin: insertResult.rows[0] });
+    if (insertError) {
+      return res.status(500).json({ message: 'Failed to create admin.', error: insertError.message });
+    }
+
+    return res.status(201).json({ admin });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to create admin.', error: error.message });
   }
@@ -108,22 +126,33 @@ app.post('/admin/signin', async (req, res) => {
   const normalizedEmail = normalizeEmail(email);
 
   try {
-    const result = await pool.query(
-      'SELECT id, name, email, password_hash FROM admins WHERE email = $1',
-      [normalizedEmail]
-    );
+    const supabase = getSupabaseClient();
+    const { data: admin, error: adminError } = await supabase
+      .from('admins')
+      .select('id, name, email, password_hash')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ message: 'Invalid credentials.' });
+    if (adminError) {
+      return res.status(500).json({ message: 'Failed to sign in.', error: adminError.message });
     }
 
-    const admin = result.rows[0];
+    if (!admin) {
+      return res.status(401).json({ message: 'Invalid credentials.' });
+    }
     const isValid = await bcrypt.compare(password, admin.password_hash);
     if (!isValid) {
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
 
-    await pool.query('UPDATE admins SET last_login = NOW() WHERE id = $1', [admin.id]);
+    const { error: lastLoginError } = await supabase
+      .from('admins')
+      .update({ last_login: new Date().toISOString() })
+      .eq('id', admin.id);
+
+    if (lastLoginError) {
+      return res.status(500).json({ message: 'Failed to sign in.', error: lastLoginError.message });
+    }
 
     const token = jwt.sign(
       { sub: admin.id },
@@ -172,51 +201,49 @@ app.patch('/articles/edit', async (req, res) => {
     image_mime,
   } = req.body;
 
-  const { imageBuffer, imageMime, error: imageError } = parseImagePayload(
-    image_base64,
-    image_mime
-  );
+  const imageProvided = image_base64 !== undefined;
+  const { imageBuffer, imageMime, error: imageError } = imageProvided
+    ? parseImagePayload(image_base64, image_mime)
+    : { imageBuffer: null, imageMime: null, error: null };
   if (imageError) {
     return res.status(400).json({ message: imageError });
   }
 
   try {
-    const result = await pool.query(
-      `UPDATE articles
-       SET title = COALESCE($3, title),
-           slug = COALESCE($4, slug),
-           summary = COALESCE($5, summary),
-           content = COALESCE($6, content),
-           category = COALESCE($7, category),
-           is_breaking = COALESCE($8, is_breaking),
-           published = COALESCE($9, published),
-           author = COALESCE($10, author),
-           image_url = COALESCE($11, image_url),
-           image_mime = COALESCE($12, image_mime),
-           updated_at = NOW()
-       WHERE id = $1 OR slug = $2
-       RETURNING *`,
-      [
-        id,
-        slug,
-        title,
-        normalizeSlug(newSlug),
-        summary,
-        content,
-        category,
-        is_breaking,
-        published,
-        author,
-        imageBuffer,
-        imageMime,
-      ]
-    );
+    const supabase = getSupabaseClient();
+    const updateFields = {
+      title,
+      slug: normalizeSlug(newSlug),
+      summary,
+      content,
+      category,
+      is_breaking,
+      published,
+      author,
+      updated_at: new Date().toISOString(),
+    };
 
-    if (result.rows.length === 0) {
+    // Breaking change: bytea values must be hex-encoded strings (\x...) for Supabase.
+    if (imageProvided && imageBuffer) {
+      updateFields.image_url = toBytea(imageBuffer);
+      updateFields.image_mime = imageMime;
+    }
+
+    const baseQuery = supabase.from('articles').update(updateFields);
+    // Breaking change: if both id and slug are provided, id is preferred.
+    const { data: article, error: updateError } = id
+      ? await baseQuery.eq('id', id).select('*').maybeSingle()
+      : await baseQuery.eq('slug', slug).select('*').maybeSingle();
+
+    if (updateError) {
+      return res.status(500).json({ message: 'Failed to update article.', error: updateError.message });
+    }
+
+    if (!article) {
       return res.status(404).json({ message: 'Article not found.' });
     }
 
-    return res.status(200).json({ article: result.rows[0] });
+    return res.status(200).json({ article });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to update article.', error: error.message });
   }
@@ -252,30 +279,43 @@ app.post('/articles/publish', async (req, res) => {
   }
 
   try {
-    const existing = await pool.query('SELECT id FROM articles WHERE slug = $1', [normalizedSlug]);
-    if (existing.rows.length > 0) {
+    const supabase = getSupabaseClient();
+    const { data: existing, error: existingError } = await supabase
+      .from('articles')
+      .select('id')
+      .eq('slug', normalizedSlug)
+      .maybeSingle();
+
+    if (existingError) {
+      return res.status(500).json({ message: 'Failed to publish article.', error: existingError.message });
+    }
+
+    if (existing) {
       return res.status(409).json({ message: 'Slug already in use.' });
     }
 
-    const result = await pool.query(
-      `INSERT INTO articles
-       (title, slug, summary, content, category, is_breaking, published, author, image_url, image_mime)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9)
-       RETURNING *`,
-      [
+    const { data: article, error: insertError } = await supabase
+      .from('articles')
+      .insert({
         title,
-        normalizedSlug,
-        summary || null,
+        slug: normalizedSlug,
+        summary: summary || null,
         content,
         category,
-        is_breaking ?? false,
-        author || null,
-        imageBuffer,
-        imageMime,
-      ]
-    );
+        is_breaking: is_breaking ?? false,
+        published: true,
+        author: author || null,
+        image_url: imageBuffer ? toBytea(imageBuffer) : null,
+        image_mime: imageMime,
+      })
+      .select('*')
+      .single();
 
-    return res.status(201).json({ article: result.rows[0] });
+    if (insertError) {
+      return res.status(500).json({ message: 'Failed to publish article.', error: insertError.message });
+    }
+
+    return res.status(201).json({ article });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to publish article.', error: error.message });
   }
@@ -283,8 +323,17 @@ app.post('/articles/publish', async (req, res) => {
 
 app.get('/articles', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM articles ORDER BY created_at DESC');
-    return res.status(200).json({ articles: result.rows });
+    const supabase = getSupabaseClient();
+    const { data: articles, error } = await supabase
+      .from('articles')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ message: 'Failed to fetch articles.', error: error.message });
+    }
+
+    return res.status(200).json({ articles });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch articles.', error: error.message });
   }
@@ -300,11 +349,18 @@ app.get('/articles/category/:category', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM articles WHERE category = $1 ORDER BY created_at DESC',
-      [category]
-    );
-    return res.status(200).json({ articles: result.rows });
+    const supabase = getSupabaseClient();
+    const { data: articles, error } = await supabase
+      .from('articles')
+      .select('*')
+      .eq('category', category)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ message: 'Failed to fetch articles.', error: error.message });
+    }
+
+    return res.status(200).json({ articles });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch articles.', error: error.message });
   }
@@ -317,16 +373,23 @@ app.delete('/articles/delete', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      'DELETE FROM articles WHERE id = $1 RETURNING id',
-      [id]
-    );
+    const supabase = getSupabaseClient();
+    const { data: deleted, error } = await supabase
+      .from('articles')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
 
-    if (result.rows.length === 0) {
+    if (error) {
+      return res.status(500).json({ message: 'Failed to delete article.', error: error.message });
+    }
+
+    if (!deleted) {
       return res.status(404).json({ message: 'Article not found.' });
     }
 
-    return res.status(200).json({ deleted: result.rows[0] });
+    return res.status(200).json({ deleted });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to delete article.', error: error.message });
   }
@@ -334,8 +397,19 @@ app.delete('/articles/delete', async (req, res) => {
 
 app.get('/editorial-boards', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM editorial_boards ORDER BY name ASC');
-    return res.status(200).json({ editorialBoards: result.rows });
+    const supabase = getSupabaseClient();
+    const { data: editorialBoards, error } = await supabase
+      .from('editorial_boards')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to fetch editorial boards.', error: error.message });
+    }
+
+    return res.status(200).json({ editorialBoards });
   } catch (error) {
     return res
       .status(500)
@@ -358,13 +432,25 @@ app.post('/editorial-boards', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `INSERT INTO editorial_boards (name, image, image_mime, about)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [name.trim(), imageBuffer, imageMime, about || null]
-    );
-    return res.status(201).json({ editorialBoard: result.rows[0] });
+    const supabase = getSupabaseClient();
+    const { data: editorialBoard, error } = await supabase
+      .from('editorial_boards')
+      .insert({
+        name: name.trim(),
+        image: imageBuffer ? toBytea(imageBuffer) : null,
+        image_mime: imageMime,
+        about: about || null,
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to create editorial board.', error: error.message });
+    }
+
+    return res.status(201).json({ editorialBoard });
   } catch (error) {
     return res
       .status(500)
@@ -383,31 +469,44 @@ app.patch('/editorial-boards', async (req, res) => {
     return res.status(400).json({ message: 'No fields provided to update.' });
   }
 
-  const { imageBuffer, imageMime, error: imageError } = parseImagePayload(
-    image_base64,
-    image_mime
-  );
+  const imageProvided = image_base64 !== undefined;
+  const { imageBuffer, imageMime, error: imageError } = imageProvided
+    ? parseImagePayload(image_base64, image_mime)
+    : { imageBuffer: null, imageMime: null, error: null };
   if (imageError) {
     return res.status(400).json({ message: imageError });
   }
 
   try {
-    const result = await pool.query(
-        `UPDATE editorial_boards
-         SET name = COALESCE($2, name),
-           image = COALESCE($3, image),
-           image_mime = COALESCE($4, image_mime),
-           about = COALESCE($5, about)
-         WHERE id = $1
-         RETURNING *`,
-        [id, name?.trim(), imageBuffer, imageMime, about]
-    );
+    const supabase = getSupabaseClient();
+    const updateFields = {
+      name: name?.trim(),
+      about,
+    };
 
-    if (result.rows.length === 0) {
+    if (imageProvided && imageBuffer) {
+      updateFields.image = toBytea(imageBuffer);
+      updateFields.image_mime = imageMime;
+    }
+
+    const { data: editorialBoard, error } = await supabase
+      .from('editorial_boards')
+      .update(updateFields)
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to update editorial board.', error: error.message });
+    }
+
+    if (!editorialBoard) {
       return res.status(404).json({ message: 'Editorial board not found.' });
     }
 
-    return res.status(200).json({ editorialBoard: result.rows[0] });
+    return res.status(200).json({ editorialBoard });
   } catch (error) {
     return res
       .status(500)
@@ -423,16 +522,25 @@ app.delete('/editorial-boards', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      'DELETE FROM editorial_boards WHERE id = $1 RETURNING id',
-      [id]
-    );
+    const supabase = getSupabaseClient();
+    const { data: deleted, error } = await supabase
+      .from('editorial_boards')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
 
-    if (result.rows.length === 0) {
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to delete editorial board.', error: error.message });
+    }
+
+    if (!deleted) {
       return res.status(404).json({ message: 'Editorial board not found.' });
     }
 
-    return res.status(200).json({ deleted: result.rows[0] });
+    return res.status(200).json({ deleted });
   } catch (error) {
     return res
       .status(500)
@@ -442,8 +550,19 @@ app.delete('/editorial-boards', async (req, res) => {
 
 app.get('/executives', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM executives ORDER BY name ASC');
-    return res.status(200).json({ executives: result.rows });
+    const supabase = getSupabaseClient();
+    const { data: executives, error } = await supabase
+      .from('executives')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to fetch executives.', error: error.message });
+    }
+
+    return res.status(200).json({ executives });
   } catch (error) {
     return res
       .status(500)
@@ -467,13 +586,26 @@ app.post('/executives', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `INSERT INTO executives (name, image, position, image_mime, about)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [name.trim(), imageBuffer, position?.trim() || null, imageMime, about || null]
-    );
-    return res.status(201).json({ executive: result.rows[0] });
+    const supabase = getSupabaseClient();
+    const { data: executive, error } = await supabase
+      .from('executives')
+      .insert({
+        name: name.trim(),
+        image: imageBuffer ? toBytea(imageBuffer) : null,
+        position: position?.trim() || null,
+        image_mime: imageMime,
+        about: about || null,
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to create executive.', error: error.message });
+    }
+
+    return res.status(201).json({ executive });
   } catch (error) {
     return res
       .status(500)
@@ -498,32 +630,45 @@ app.patch('/executives', async (req, res) => {
     return res.status(400).json({ message: 'No fields provided to update.' });
   }
 
-  const { imageBuffer, imageMime, error: imageError } = parseImagePayload(
-    image_base64,
-    image_mime
-  );
+  const imageProvided = image_base64 !== undefined;
+  const { imageBuffer, imageMime, error: imageError } = imageProvided
+    ? parseImagePayload(image_base64, image_mime)
+    : { imageBuffer: null, imageMime: null, error: null };
   if (imageError) {
     return res.status(400).json({ message: imageError });
   }
 
   try {
-    const result = await pool.query(
-      `UPDATE executives
-       SET name = COALESCE($2, name),
-           image = COALESCE($3, image),
-           position = COALESCE($4, position),
-           image_mime = COALESCE($5, image_mime),
-           about = COALESCE($6, about)
-       WHERE id = $1
-       RETURNING *`,
-      [id, name?.trim(), imageBuffer, position?.trim(), imageMime, about]
-    );
+    const supabase = getSupabaseClient();
+    const updateFields = {
+      name: name?.trim(),
+      position: position?.trim(),
+      about,
+    };
 
-    if (result.rows.length === 0) {
+    if (imageProvided && imageBuffer) {
+      updateFields.image = toBytea(imageBuffer);
+      updateFields.image_mime = imageMime;
+    }
+
+    const { data: executive, error } = await supabase
+      .from('executives')
+      .update(updateFields)
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to update executive.', error: error.message });
+    }
+
+    if (!executive) {
       return res.status(404).json({ message: 'Executive not found.' });
     }
 
-    return res.status(200).json({ executive: result.rows[0] });
+    return res.status(200).json({ executive });
   } catch (error) {
     return res
       .status(500)
@@ -539,15 +684,25 @@ app.delete('/executives', async (req, res) => {
   }
 
   try {
-    const result = await pool.query('DELETE FROM executives WHERE id = $1 RETURNING id', [
-      id,
-    ]);
+    const supabase = getSupabaseClient();
+    const { data: deleted, error } = await supabase
+      .from('executives')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
 
-    if (result.rows.length === 0) {
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to delete executive.', error: error.message });
+    }
+
+    if (!deleted) {
       return res.status(404).json({ message: 'Executive not found.' });
     }
 
-    return res.status(200).json({ deleted: result.rows[0] });
+    return res.status(200).json({ deleted });
   } catch (error) {
     return res
       .status(500)
@@ -575,14 +730,26 @@ app.post('/advertisements/publish', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `INSERT INTO advertisements (image, image_mime, url, owner, page)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [imageBuffer, imageMime, url.trim(), owner.trim(), page.trim()]
-    );
+    const supabase = getSupabaseClient();
+    const { data: advertisement, error } = await supabase
+      .from('advertisements')
+      .insert({
+        image: imageBuffer ? toBytea(imageBuffer) : null,
+        image_mime: imageMime,
+        url: url.trim(),
+        owner: owner.trim(),
+        page: page.trim(),
+      })
+      .select('*')
+      .single();
 
-    return res.status(201).json({ advertisement: result.rows[0] });
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to create advertisement.', error: error.message });
+    }
+
+    return res.status(201).json({ advertisement });
   } catch (error) {
     return res
       .status(500)
@@ -592,8 +759,19 @@ app.post('/advertisements/publish', async (req, res) => {
 
 app.get('/advertisements', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM advertisements ORDER BY created_at DESC');
-    return res.status(200).json({ advertisements: result.rows });
+    const supabase = getSupabaseClient();
+    const { data: advertisements, error } = await supabase
+      .from('advertisements')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to fetch advertisements.', error: error.message });
+    }
+
+    return res.status(200).json({ advertisements });
   } catch (error) {
     return res
       .status(500)
@@ -609,11 +787,20 @@ app.get('/advertisements/page/:page', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM advertisements WHERE page = $1 ORDER BY created_at DESC',
-      [page]
-    );
-    return res.status(200).json({ advertisements: result.rows });
+    const supabase = getSupabaseClient();
+    const { data: advertisements, error } = await supabase
+      .from('advertisements')
+      .select('*')
+      .eq('page', page)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to fetch advertisements.', error: error.message });
+    }
+
+    return res.status(200).json({ advertisements });
   } catch (error) {
     return res
       .status(500)
@@ -638,33 +825,46 @@ app.patch('/advertisements/edit', async (req, res) => {
     return res.status(400).json({ message: 'No fields provided to update.' });
   }
 
-  const { imageBuffer, imageMime, error: imageError } = parseImagePayload(
-    image_base64,
-    image_mime
-  );
+  const imageProvided = image_base64 !== undefined;
+  const { imageBuffer, imageMime, error: imageError } = imageProvided
+    ? parseImagePayload(image_base64, image_mime)
+    : { imageBuffer: null, imageMime: null, error: null };
   if (imageError) {
     return res.status(400).json({ message: imageError });
   }
 
   try {
-    const result = await pool.query(
-      `UPDATE advertisements
-       SET image = COALESCE($2, image),
-           image_mime = COALESCE($3, image_mime),
-           url = COALESCE($4, url),
-           owner = COALESCE($5, owner),
-           page = COALESCE($6, page),
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [id, imageBuffer, imageMime, url?.trim(), owner?.trim(), page?.trim()]
-    );
+    const supabase = getSupabaseClient();
+    const updateFields = {
+      url: url?.trim(),
+      owner: owner?.trim(),
+      page: page?.trim(),
+      updated_at: new Date().toISOString(),
+    };
 
-    if (result.rows.length === 0) {
+    if (imageProvided && imageBuffer) {
+      updateFields.image = toBytea(imageBuffer);
+      updateFields.image_mime = imageMime;
+    }
+
+    const { data: advertisement, error } = await supabase
+      .from('advertisements')
+      .update(updateFields)
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to update advertisement.', error: error.message });
+    }
+
+    if (!advertisement) {
       return res.status(404).json({ message: 'Advertisement not found.' });
     }
 
-    return res.status(200).json({ advertisement: result.rows[0] });
+    return res.status(200).json({ advertisement });
   } catch (error) {
     return res
       .status(500)
@@ -680,16 +880,25 @@ app.delete('/advertisements/delete', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      'DELETE FROM advertisements WHERE id = $1 RETURNING id',
-      [id]
-    );
+    const supabase = getSupabaseClient();
+    const { data: deleted, error } = await supabase
+      .from('advertisements')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
 
-    if (result.rows.length === 0) {
+    if (error) {
+      return res
+        .status(500)
+        .json({ message: 'Failed to delete advertisement.', error: error.message });
+    }
+
+    if (!deleted) {
       return res.status(404).json({ message: 'Advertisement not found.' });
     }
 
-    return res.status(200).json({ deleted: result.rows[0] });
+    return res.status(200).json({ deleted });
   } catch (error) {
     return res
       .status(500)
@@ -705,14 +914,21 @@ app.post('/quotes/publish', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `INSERT INTO quotes (title, author)
-       VALUES ($1, $2)
-       RETURNING *`,
-      [title.trim(), author.trim()]
-    );
+    const supabase = getSupabaseClient();
+    const { data: quote, error } = await supabase
+      .from('quotes')
+      .insert({
+        title: title.trim(),
+        author: author.trim(),
+      })
+      .select('*')
+      .single();
 
-    return res.status(201).json({ quote: result.rows[0] });
+    if (error) {
+      return res.status(500).json({ message: 'Failed to create quote.', error: error.message });
+    }
+
+    return res.status(201).json({ quote });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to create quote.', error: error.message });
   }
@@ -720,8 +936,17 @@ app.post('/quotes/publish', async (req, res) => {
 
 app.get('/quotes', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM quotes ORDER BY created_at DESC');
-    return res.status(200).json({ quotes: result.rows });
+    const supabase = getSupabaseClient();
+    const { data: quotes, error } = await supabase
+      .from('quotes')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ message: 'Failed to fetch quotes.', error: error.message });
+    }
+
+    return res.status(200).json({ quotes });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch quotes.', error: error.message });
   }
@@ -739,21 +964,27 @@ app.patch('/quotes/edit', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `UPDATE quotes
-       SET title = COALESCE($2, title),
-           author = COALESCE($3, author),
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [id, title?.trim(), author?.trim()]
-    );
+    const supabase = getSupabaseClient();
+    const { data: quote, error } = await supabase
+      .from('quotes')
+      .update({
+        title: title?.trim(),
+        author: author?.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
 
-    if (result.rows.length === 0) {
+    if (error) {
+      return res.status(500).json({ message: 'Failed to update quote.', error: error.message });
+    }
+
+    if (!quote) {
       return res.status(404).json({ message: 'Quote not found.' });
     }
 
-    return res.status(200).json({ quote: result.rows[0] });
+    return res.status(200).json({ quote });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to update quote.', error: error.message });
   }
@@ -767,13 +998,23 @@ app.delete('/quotes/delete', async (req, res) => {
   }
 
   try {
-    const result = await pool.query('DELETE FROM quotes WHERE id = $1 RETURNING id', [id]);
+    const supabase = getSupabaseClient();
+    const { data: deleted, error } = await supabase
+      .from('quotes')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
 
-    if (result.rows.length === 0) {
+    if (error) {
+      return res.status(500).json({ message: 'Failed to delete quote.', error: error.message });
+    }
+
+    if (!deleted) {
       return res.status(404).json({ message: 'Quote not found.' });
     }
 
-    return res.status(200).json({ deleted: result.rows[0] });
+    return res.status(200).json({ deleted });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to delete quote.', error: error.message });
   }
@@ -783,15 +1024,6 @@ app.delete('/quotes/delete', async (req, res) => {
 if (!process.env.VERCEL) {
   app.listen(PORT, async () => {
     console.log(`Server is running on port ${PORT}`);
-    
-    // Test database connection
-    try {
-      const client = await pool.connect();
-      console.log('✓ Database connected successfully');
-      client.release();
-    } catch (error) {
-      console.error('✗ Database connection failed:', error.message);
-    }
   });
 }
 
